@@ -1,4 +1,5 @@
-from typing import Literal, ReadOnly, Required, TypedDict
+from typing import Literal, TypedDict
+from typing_extensions import ReadOnly, Required
 
 from flask.templating import render_template
 from flask_mail import Message
