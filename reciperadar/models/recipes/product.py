@@ -1,52 +1,99 @@
-from sqlalchemy.dialects import postgresql
+from functools import cached_property
+from sqlalchemy import event
+from sqlalchemy.ext.associationproxy import association_proxy
 
 from reciperadar import db
 from reciperadar.models.base import Storable
-from reciperadar.search.base import EntityClause
+from reciperadar.workers.products import update_product_synonyms
 
 
 class Product(Storable):
-    __tablename__ = "ingredient_products"
+    __tablename__ = "products"
 
-    ingredient_fk = db.ForeignKey("recipe_ingredients.id")
-    ingredient_id = db.Column(db.String, ingredient_fk)
+    parent_fk = db.ForeignKey(
+        "products.id",
+        deferrable=True,
+        ondelete="cascade",
+        onupdate="cascade",
+    )
+    parent_id = db.Column(db.String, parent_fk, index=True)
 
     id = db.Column(db.String, primary_key=True)
-    product_parser = db.Column(db.String)
-    singular = db.Column(db.String)
-    plural = db.Column(db.String)
+    wdqid = db.Column(db.String)
     category = db.Column(db.String)
-    contents = db.Column(postgresql.ARRAY(db.String))
+    is_kitchen_staple = db.Column(db.Boolean)
+    is_dairy_free = db.Column(db.Boolean)
+    is_gluten_free = db.Column(db.Boolean)
+    is_vegan = db.Column(db.Boolean)
+    is_vegetarian = db.Column(db.Boolean)
 
-    STATE_AVAILABLE = "available"
-    STATE_REQUIRED = "required"
+    names = db.relationship(
+        "ProductName", uselist=True, passive_deletes="all", backref="product"
+    )
+    parent = db.relationship(
+        "Product", uselist=False, remote_side=[id], backref="children"
+    )
 
-    @staticmethod
-    def from_doc(doc):
-        return Product(
-            id=doc.get("id"),
-            product_parser=doc.get("product_parser"),
-            singular=doc.get("singular"),
-            plural=doc.get("plural"),
-            category=doc.get("category"),
-            contents=doc.get("contents"),
-        )
+    singular_names = association_proxy("names", "singular")
+    plural_names = association_proxy("names", "plural")
 
-    def state(self, ingredients):
-        ingredients = ingredients or []
-        states = {
-            True: Product.STATE_AVAILABLE,
-            False: Product.STATE_REQUIRED,
-        }
-        include = EntityClause.term_list(ingredients, lambda x: x.positive)
-        available = bool(set(self.contents or []) & set(include))
-        return states[available]
+    def __str__(self):
+        return self.id
 
-    def to_dict(self, ingredients):
-        return {
-            "id": self.id,
-            "category": self.category,
-            "singular": self.singular,
-            "plural": self.plural,
-            "state": self.state(ingredients),
-        }
+    @cached_property
+    def contents(self):
+        contents = set()
+        for name in self.names:
+            contents |= set(name.contents or [])
+        return sorted(contents)
+
+    def to_doc(self):
+        data = super().to_doc()
+        data["contents"] = self.contents
+        return data
+
+
+class ProductName(Storable):
+    __tablename__ = "product_names"
+
+    product_fk = db.ForeignKey(
+        "products.id",
+        deferrable=True,
+        ondelete="cascade",
+        onupdate="cascade",
+    )
+
+    id = db.Column(db.String, primary_key=True)
+    product_id = db.Column(db.String, product_fk, index=True)
+    singular = db.Column(db.String, index=True)
+    plural = db.Column(db.String)
+
+    @cached_property
+    def ancestors(self):
+        product = self.product
+        while product:
+            yield product
+            product = product.parent
+
+    @cached_property
+    def contents(self):
+        results = set()
+        for product in self.ancestors:
+            for product_name in product.names:
+                results.add(product_name.singular)
+        return results
+
+
+@event.listens_for(ProductName, "after_insert")
+def after_product_name_insert(mapper, connection, target):
+    update_product_synonyms.delay()
+
+
+@event.listens_for(ProductName, "after_update")
+def after_product_name_update(mapper, connection, target):
+    update_product_synonyms.delay()
+
+
+@event.listens_for(ProductName, "after_delete")
+def after_product_name_delete(mapper, connection, target):
+    update_product_synonyms.delay()

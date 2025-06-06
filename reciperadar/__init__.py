@@ -1,29 +1,34 @@
-import os
-
 from flask import Flask
-from flask_mail import Mail
+from flask.sessions import SessionMixin
+from flask_admin import Admin
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.middleware.proxy_fix import ProxyFix
+
+db = SQLAlchemy(session_options={"autoflush": False})
 
 
-app = Flask(__name__)
-app.config.update(
-    MAIL_SERVER="smtp.gmail.com",
-    MAIL_PORT=587,
-    MAIL_USE_TLS=True,
-    MAIL_USERNAME=os.environ.get("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD"),
-    SQLALCHEMY_DATABASE_URI="sqlite://",
-    SQLALCHEMY_TRACK_MODIFICATIONS=False,
-)
-app.url_map.strict_slashes = False
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-
-mail = Mail(app)
-db = SQLAlchemy(app)
+def create_app(db_uri="postgresql+pg8000://backend@postgresql/backend"):
+    app = Flask(__name__)
+    app.config.update(SQLALCHEMY_DATABASE_URI=db_uri)
+    return app
 
 
-import reciperadar.api.feedback
-import reciperadar.api.autosuggest
+class EphemeralSession(dict, SessionMixin):
+    def open_session(self, app, request):
+        return EphemeralSession()
+
+    def is_null_session(self, obj):
+        return True
+
+
+app = create_app()
+app.session_interface = EphemeralSession()
+migrate = Migrate(app, db)
+admin_app = Admin(app)
+db.init_app(app)
+
+
+import reciperadar.admin.products
+import reciperadar.api.domains
+import reciperadar.api.products
 import reciperadar.api.recipes
-import reciperadar.api.redirect

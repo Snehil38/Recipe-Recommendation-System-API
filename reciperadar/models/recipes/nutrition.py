@@ -5,7 +5,6 @@ from reciperadar.models.base import Storable
 class Nutrition(Storable):
     __abstract__ = True
 
-    id = db.Column(db.String, primary_key=True)
     carbohydrates = db.Column(db.Float)
     carbohydrates_units = db.Column(db.String)
     energy = db.Column(db.Float)
@@ -17,40 +16,25 @@ class Nutrition(Storable):
     protein = db.Column(db.Float)
     protein_units = db.Column(db.String)
 
-    def to_dict(self):
-        return {
-            "carbohydrates": {
-                "magnitude": self.carbohydrates,
-                "units": self.carbohydrates_units,
-            },
-            "energy": {
-                "magnitude": self.energy,
-                "units": self.energy_units,
-            },
-            "fat": {
-                "magnitude": self.fat,
-                "units": self.fat_units,
-            },
-            "fibre": {
-                "magnitude": self.fibre,
-                "units": self.fibre_units,
-            },
-            "protein": {
-                "magnitude": self.protein,
-                "units": self.protein_units,
-            },
-        }
-
 
 class RecipeNutrition(Nutrition):
     __tablename__ = "recipe_nutrition"
 
-    fk = db.ForeignKey("recipes.id")
-    recipe_id = db.Column(db.String, fk)
+    fk = db.ForeignKey(
+        "recipes.id",
+        deferrable=True,
+        ondelete="cascade",
+        onupdate="cascade",
+    )
+    recipe_id = db.Column(db.String, fk, index=True)
+
+    id = db.Column(db.String, primary_key=True)
 
     @staticmethod
     def from_doc(doc):
+        nutrition_id = doc.get("id") or RecipeNutrition.generate_id()
         return RecipeNutrition(
+            id=nutrition_id,
             carbohydrates=doc.get("carbohydrates"),
             carbohydrates_units=doc.get("carbohydrates_units"),
             energy=doc.get("energy"),
