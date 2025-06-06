@@ -22,7 +22,7 @@ class EphemeralSession(dict, SessionMixin):
 
 
 app = create_app()
-app.session_interface = EphemeralSession()
+app.session_interface = EphemeralSession
 migrate = Migrate(app, db)
 admin_app = Admin(app)
 db.init_app(app)
