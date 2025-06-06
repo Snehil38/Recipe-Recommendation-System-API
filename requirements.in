@@ -8,3 +8,4 @@ opensearch-py==2.8.0
 sqlalchemy==2.0.40
 user-agents==2.2.0
 typing-extensions>=4.5
+flask-admin
