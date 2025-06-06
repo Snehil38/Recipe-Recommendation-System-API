@@ -1,6 +1,16 @@
 import pytest
 
-from reciperadar import app
+from sqlalchemy.orm import scoped_session, sessionmaker
+
+from reciperadar import app, db
+from reciperadar.models.recipes.product import Product, ProductName
+
+
+@pytest.fixture(autouse=True)
+def celery_broker():
+    from reciperadar.workers.broker import celery
+
+    celery.conf.update({"broker_url": "memory://"})
 
 
 @pytest.fixture
@@ -9,47 +19,92 @@ def client():
 
 
 @pytest.fixture
-def raw_recipe_hit():
+def connection():
+    with app.app_context():
+        yield db.engine.connect()
+
+
+@pytest.fixture
+def db_session(connection):
+    session_factory = sessionmaker(connection, join_transaction_mode="create_savepoint")
+    db.session = scoped_session(session_factory)
+    transaction = connection.begin()
+    yield db.session
+
+    db.session.close()
+    transaction.rollback()
+
+
+@pytest.fixture
+def products(db_session):
+    from reciperadar import db
+
+    db.session.add(
+        Product(
+            id="ancestor_of_one",
+        )
+    )
+    db.session.add(
+        ProductName(
+            id="ancestor_of_one",
+            product_id="ancestor_of_one",
+            singular="ancestor-of-one",
+            plural="ancestor-of-ones",
+        )
+    )
+    db.session.add(
+        Product(
+            id="one",
+            parent_id="ancestor_of_one",
+            is_vegan=True,
+            is_vegetarian=True,
+        )
+    )
+    db.session.add(
+        ProductName(
+            id="one",
+            product_id="one",
+            singular="one",
+            plural="ones",
+        )
+    )
+    db.session.add(
+        Product(
+            id="two",
+            is_gluten_free=False,
+            is_vegetarian=True,
+        )
+    )
+    db.session.add(
+        ProductName(
+            id="two",
+            product_id="two",
+            singular="two",
+            plural="twos",
+        )
+    )
+    db.session.commit()
+
+
+@pytest.fixture
+def raw_recipe_hit(products):
     return {
         "_index": "recipes",
         "_type": "recipe",
         "_id": "random-id",
         "_score": 10.04635,
         "_source": {
-            "id": "recipe_id_0",
             "title": "Test Recipe",
-            "directions": [
-                {
-                    "id": "direction_id_0",
-                    "index": 0,
-                    "description": "place each skewer in the oven",
-                    "markup": (
-                        "<mark class='action'>place</mark> each "
-                        # "<mark class='equipment utensil'>skewer</mark> in the "
-                        # "<mark class='equipment appliance'>oven</mark>"
-                        "<mark class='utensil'>skewer</mark> in the "
-                        "<mark class='appliance'>oven</mark>"
-                    ),
-                }
-            ],
             "ingredients": [
                 {
-                    "id": "ingredient_id_0",
                     "index": 0,
                     "description": "1 unit of test ingredient one",
                     "product": {
-                        "singular": "one",
-                        "plural": "ones",
-                        "contents": [
-                            "ancestor-of-one",
-                            "content-of-one",
-                            "one",
-                        ],
+                        "id": "one",
                     },
-                    "product_is_plural": False,
-                    "product_name": "one",
+                    "magnitude": 50,
+                    "units": "ml",
                     "nutrition": {
-                        "id": "nutrition_id_0",
                         "carbohydrates": 0,
                         "carbohydrates_units": "g",
                         "energy": 0,
@@ -61,14 +116,16 @@ def raw_recipe_hit():
                         "protein": 0.05,
                         "protein_units": "g",
                     },
+                    "relative_density": 0.5,
                 },
                 {
-                    "id": "ingredient_id_1",
                     "index": 1,
                     "description": "two units of test ingredient two",
-                    "product": {"singular": "two"},
-                    "product_is_plural": False,
-                    "product_name": "two",
+                    "product": {
+                        "id": "two",
+                    },
+                    "magnitude": 2,
+                    "units": "g",
                 },
             ],
             "author": "example",
@@ -79,19 +136,6 @@ def raw_recipe_hit():
             "servings": 2,
             "rating": 4.5,
             "indexed_at": "1970-01-01T01:02:03.456789",
-            "nutrition": {
-                "carbohydrates": 0,
-                "carbohydrates_units": "g",
-                "energy": 0,
-                "energy_units": "cal",
-                "fat": 0.01,
-                "fat_units": "g",
-                "fibre": 0.65,
-                "fibre_units": "g",
-                "protein": 0.05,
-                "protein_units": "g",
-            },
-            "is_vegetarian": True,
         },
         "inner_hits": {"ingredients": {"hits": {"hits": []}}},
     }
