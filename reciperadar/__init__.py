@@ -6,8 +6,12 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy(session_options={"autoflush": False})
 
+@app.route("/")
+def index():
+    return "✅ Flask app is live"
 
-def create_app(db_uri = "postgresql+pg8000://backend:<password>@localhost/backend"):
+
+def create_app(db_uri="postgresql+pg8000://backend@postgresql/backend"):
     app = Flask(__name__)
     app.config.update(SQLALCHEMY_DATABASE_URI=db_uri)
     return app
